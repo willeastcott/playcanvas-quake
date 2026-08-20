@@ -65,14 +65,18 @@ type ViewPoint = [number, number, number];
 
 const clipSurface = (
     polygon: ViewPoint[],
-    distance: (point: ViewPoint) => number
+    xScale: number,
+    yScale: number,
+    zScale: number
 ): ViewPoint[] => {
     if (polygon.length === 0) return polygon;
     const clipped: ViewPoint[] = [];
     let previous = polygon.at(-1) as ViewPoint;
-    let previousDistance = distance(previous);
+    let previousDistance = previous[0] * xScale + previous[1] * yScale +
+        previous[2] * zScale;
     for (const current of polygon) {
-        const currentDistance = distance(current);
+        const currentDistance = current[0] * xScale + current[1] * yScale +
+            current[2] * zScale;
         const previousInside = previousDistance >= 0;
         const currentInside = currentDistance >= 0;
         if (previousInside !== currentInside) {
@@ -89,6 +93,70 @@ const clipSurface = (
     return clipped;
 };
 
+export interface QuakeSurfaceMipView {
+    cameraOrigin: Vec3,
+    cameraRight: Vec3,
+    cameraUp: Vec3,
+    cameraForward: Vec3,
+    horizontalHalf: number;
+    scaleForMip: number;
+    verticalHalf: number;
+}
+
+export const quakeSurfaceMipView = (
+    cameraOrigin: Vec3,
+    cameraRight: Vec3,
+    cameraUp: Vec3,
+    cameraForward: Vec3,
+    viewWidth: number,
+    viewHeight: number,
+    fieldOfView = 90,
+    pixelAspect = 5 / 6
+): QuakeSurfaceMipView | undefined => {
+    if (viewWidth <= 0 || viewHeight <= 0) return undefined;
+    const clampedFieldOfView = Math.max(10, Math.min(170, fieldOfView));
+    const horizontalHalf = Math.tan(clampedFieldOfView * Math.PI / 360);
+    const screenAspect = viewWidth * pixelAspect / viewHeight;
+    const verticalHalf = horizontalHalf / screenAspect;
+    const xScale = viewWidth / (horizontalHalf * 2);
+    return {
+        cameraOrigin,
+        cameraRight,
+        cameraUp,
+        cameraForward,
+        horizontalHalf,
+        scaleForMip: Math.max(xScale, xScale * pixelAspect),
+        verticalHalf
+    };
+};
+
+export const quakeSurfaceMipLevelForPreparedView = (
+    vertices: readonly Vec3[],
+    view: QuakeSurfaceMipView,
+    mipAdjustment: number
+): number | undefined => {
+    if (vertices.length < 3) return undefined;
+    let polygon = vertices.map((vertex): ViewPoint => {
+        const relative = vertex.map(
+            (component, axis) => component - view.cameraOrigin[axis]
+        ) as Vec3;
+        return [
+            dot(relative, view.cameraRight),
+            dot(relative, view.cameraUp),
+            dot(relative, view.cameraForward)
+        ];
+    });
+    polygon = clipSurface(polygon, -1, 0, view.horizontalHalf);
+    polygon = clipSurface(polygon, 1, 0, view.horizontalHalf);
+    polygon = clipSurface(polygon, 0, -1, view.verticalHalf);
+    polygon = clipSurface(polygon, 0, 1, view.verticalHalf);
+    if (polygon.length < 3) return undefined;
+    const nearZi = polygon.reduce(
+        (nearest, point) => Math.max(nearest, 1 / Math.max(point[2], 0.01)), 0
+    );
+    return quakeSurfaceMipLevelForScale(nearZi * view.scaleForMip * mipAdjustment);
+};
+
 export const quakeSurfaceMipLevelForView = (
     vertices: readonly Vec3[],
     cameraOrigin: Vec3,
@@ -101,37 +169,17 @@ export const quakeSurfaceMipLevelForView = (
     fieldOfView = 90,
     pixelAspect = 5 / 6
 ): number | undefined => {
-    if (vertices.length < 3 || viewWidth <= 0 || viewHeight <= 0) return undefined;
-    let polygon = vertices.map((vertex): ViewPoint => {
-        const relative = vertex.map(
-            (component, axis) => component - cameraOrigin[axis]
-        ) as Vec3;
-        return [
-            dot(relative, cameraRight),
-            dot(relative, cameraUp),
-            dot(relative, cameraForward)
-        ];
-    });
-    const clampedFieldOfView = Math.max(10, Math.min(170, fieldOfView));
-    const horizontalHalf = Math.tan(clampedFieldOfView * Math.PI / 360);
-    const screenAspect = viewWidth * pixelAspect / viewHeight;
-    const verticalHalf = horizontalHalf / screenAspect;
-    for (const distance of [
-        (point: ViewPoint): number => point[2] * horizontalHalf - point[0],
-        (point: ViewPoint): number => point[2] * horizontalHalf + point[0],
-        (point: ViewPoint): number => point[2] * verticalHalf - point[1],
-        (point: ViewPoint): number => point[2] * verticalHalf + point[1]
-    ]) {
-        polygon = clipSurface(polygon, distance);
-    }
-    if (polygon.length < 3) return undefined;
-    const nearZi = polygon.reduce(
-        (nearest, point) => Math.max(nearest, 1 / Math.max(point[2], 0.01)), 0
+    const view = quakeSurfaceMipView(
+        cameraOrigin,
+        cameraRight,
+        cameraUp,
+        cameraForward,
+        viewWidth,
+        viewHeight,
+        fieldOfView,
+        pixelAspect
     );
-    const horizontalFieldOfView = horizontalHalf * 2;
-    const xScale = viewWidth / horizontalFieldOfView;
-    const scaleForMip = Math.max(xScale, xScale * pixelAspect);
-    return quakeSurfaceMipLevelForScale(nearZi * scaleForMip * mipAdjustment);
+    return view ? quakeSurfaceMipLevelForPreparedView(vertices, view, mipAdjustment) : undefined;
 };
 
 export const quakeSurfaceLightGrade = (

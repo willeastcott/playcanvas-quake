@@ -176,6 +176,50 @@ export const quakeWeaponIconName = (
     return `${activeWeapon === weapon ? 'inv2' : 'inv'}_${name}`;
 };
 
+const hudStatisticsDrawState = (statistics?: HudStatistics): unknown => (
+    statistics ? { ...statistics, time: Math.trunc(statistics.time) } : undefined
+);
+
+export const quakeHudStateDrawKey = (state: HudState): string => {
+    const activeWeapon = Math.trunc(state.activeWeapon ?? 1);
+    const time = state.time ?? 0;
+    const menu = state.menu ? {
+        ...state.menu,
+        animationFrame: Math.floor(state.menu.time * 10) % 6,
+        cursorFrame: Math.floor(state.menu.time * 4) & 1,
+        time: undefined
+    } : undefined;
+    const consoleState = state.console ? {
+        ...state.console,
+        cursorFrame: Math.floor(state.console.time * 4) & 1,
+        time: undefined
+    } : undefined;
+    const finale = state.finale ? {
+        ...state.finale,
+        time: undefined,
+        visibleCharacters: quakeFinaleVisibleCharacters(
+            state.finale.time,
+            state.finale.printSpeed
+        )
+    } : undefined;
+    return JSON.stringify({
+        ...state,
+        console: consoleState,
+        finale,
+        intermission: hudStatisticsDrawState(state.intermission),
+        menu,
+        scoreboard: hudStatisticsDrawState(state.scoreboard),
+        time: undefined,
+        weaponIcons: WEAPON_ICONS.map((name, index) => quakeWeaponIconName(
+            name,
+            1 << index,
+            activeWeapon,
+            state.itemGetTimes?.[index] ?? 0,
+            time
+        ))
+    });
+};
+
 export const quakeMenuFadeOpaque = (x: number, y: number): boolean => (x & 3) !== ((y & 1) << 1);
 
 export const quakePlayerTranslation = (topColor: number, bottomColor: number): Uint8Array => {
@@ -237,6 +281,7 @@ export class HudRenderer {
     backTilePattern?: CanvasPattern;
     menuFadePattern?: CanvasPattern;
     private lastState: HudState = {};
+    private lastDrawKey?: string;
 
     constructor(
         canvas: HTMLCanvasElement,
@@ -263,6 +308,7 @@ export class HudRenderer {
         this.pictures.clear();
         this.backTilePattern = undefined;
         this.characterCanvas = undefined;
+        this.lastDrawKey = undefined;
     }
 
     drawLoading(): void {
@@ -842,6 +888,9 @@ export class HudRenderer {
 
     draw(state: HudState = {}): void {
         if (!state.loading) this.lastState = state;
+        const drawKey = quakeHudStateDrawKey(state);
+        if (drawKey === this.lastDrawKey) return;
+        this.lastDrawKey = drawKey;
         const health = state.health ?? 100;
         const armor = state.armor ?? 0;
         const ammo = state.ammo ?? 25;

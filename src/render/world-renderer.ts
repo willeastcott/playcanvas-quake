@@ -28,7 +28,8 @@ import {
 } from './palette';
 import {
     quakeLightStyleValue,
-    quakeSurfaceMipLevelForView,
+    quakeSurfaceMipLevelForPreparedView,
+    quakeSurfaceMipView,
     quakeTextureMipAdjustment
 } from './quake-lighting';
 import { quakeEntityRotation } from './quake-transform';
@@ -72,12 +73,16 @@ interface WorldBatchFace {
     leafs: number[];
     mipAdjustment: number;
     vertexCount: number;
+    visible: boolean;
 }
 
 export interface WorldBatch extends WorldBatchGeometry {
+    activeTextureIndex: number;
     material: ShaderMaterial;
     entity: Entity;
+    lightStyleValues: Float32Array<ArrayBuffer>;
     mesh: Mesh;
+    textureSize: Float32Array<ArrayBuffer>;
 }
 
 interface WorldMipBatch {
@@ -85,6 +90,7 @@ interface WorldMipBatch {
     faces: WorldBatchFace[];
     mesh: Mesh;
     mipLevels: number[];
+    modelIndex: number;
     mode: SurfaceMode;
     positions: number[];
 }
@@ -105,6 +111,14 @@ export interface QuakeSkyView {
 }
 
 const quakeToPlayCanvas = (position: Vec3): Vec3 => [position[0], position[2], -position[1]];
+
+const arraysEqual = (left: ArrayLike<number>, right: ArrayLike<number>): boolean => {
+    if (left.length !== right.length) return false;
+    for (let index = 0; index < left.length; index++) {
+        if (left[index] !== right[index]) return false;
+    }
+    return true;
+};
 
 export const quakeFaceWorldVertices = (
     positions: readonly number[],
@@ -306,8 +320,21 @@ export class WorldRenderer {
     readonly faceLeafs: number[][];
     readonly batches: WorldBatch[] = [];
     readonly root: Entity;
+    readonly cameraPositionUniform = new Float32Array(3);
+    readonly skyForwardUniform = new Float32Array([1, 0, 0]);
+    readonly skyRenderSizeUniform = new Float32Array([320, 152]);
+    readonly skyRightUniform = new Float32Array([0, -1, 0]);
+    readonly skyUpUniform = new Float32Array([0, 0, 1]);
+    readonly skyVideoSizeUniform = new Float32Array([320, 200]);
+    readonly skyViewRectUniform = new Float32Array([0, 0, 320, 152]);
+    readonly staticMipCameraPosition = new Float32Array(3);
+    readonly staticMipForward = new Float32Array(3);
+    readonly staticMipRight = new Float32Array(3);
+    readonly staticMipUp = new Float32Array(3);
+    readonly staticMipViewRect = new Float32Array(4);
     dynamicLightsWereActive = false;
     lightmapSize = 0;
+    staticMipFieldOfView = Number.NaN;
     visibilityLeaf = -1;
 
     constructor(
@@ -473,7 +500,8 @@ export class WorldRenderer {
             indices: faceIndices,
             leafs: this.faceLeafs[faceIndex],
             mipAdjustment: quakeTextureMipAdjustment(textureInfo.vectors),
-            vertexCount: vertexIndices.length
+            vertexCount: vertexIndices.length,
+            visible: true
         });
     }
 
@@ -507,16 +535,18 @@ export class WorldRenderer {
         material.setParameter('uColormap', this.colormapTexture);
         material.setParameter('uLightmap', this.lightmap);
         material.setParameter('uDynamicLightmap', this.dynamicLightmap);
-        material.setParameter('uTextureSize', new Float32Array([texture.width, texture.height]));
+        const textureSize = new Float32Array([texture.width, texture.height]);
+        const lightStyleValues = new Float32Array([1, 0, 0, 0]);
+        material.setParameter('uTextureSize', textureSize);
         material.setParameter('uLightmapSize', this.lightmapSize);
-        material.setParameter('uLightStyles', new Float32Array([1, 0, 0, 0]));
-        material.setParameter('uCameraPosition', new Float32Array(3));
-        material.setParameter('uSkyForward', new Float32Array([1, 0, 0]));
-        material.setParameter('uSkyRight', new Float32Array([0, -1, 0]));
-        material.setParameter('uSkyUp', new Float32Array([0, 0, 1]));
-        material.setParameter('uSkyRenderSize', new Float32Array([320, 152]));
-        material.setParameter('uSkyVideoSize', new Float32Array([320, 200]));
-        material.setParameter('uSkyViewRect', new Float32Array([0, 0, 320, 152]));
+        material.setParameter('uLightStyles', lightStyleValues);
+        material.setParameter('uCameraPosition', this.cameraPositionUniform);
+        material.setParameter('uSkyForward', this.skyForwardUniform);
+        material.setParameter('uSkyRight', this.skyRightUniform);
+        material.setParameter('uSkyUp', this.skyUpUniform);
+        material.setParameter('uSkyRenderSize', this.skyRenderSizeUniform);
+        material.setParameter('uSkyVideoSize', this.skyVideoSizeUniform);
+        material.setParameter('uSkyViewRect', this.skyViewRectUniform);
         material.setParameter('uColorShift', new Float32Array(3));
         material.setParameter('uColorShiftAmount', 0);
         material.setParameter('uGamma', 1);
@@ -533,7 +563,15 @@ export class WorldRenderer {
             material
         );
         this.root.addChild(entity);
-        this.batches.push({ ...batch, material, entity, mesh });
+        this.batches.push({
+            ...batch,
+            activeTextureIndex: batch.textureIndex,
+            material,
+            entity,
+            lightStyleValues,
+            mesh,
+            textureSize
+        });
     }
 
     private createMesh(batch: WorldBatchGeometry): Mesh {
@@ -580,6 +618,7 @@ export class WorldRenderer {
                 faces: batch.faces,
                 mesh,
                 mipLevels,
+                modelIndex: batch.modelIndex,
                 mode: batch.mode,
                 positions: batch.positions
             };
@@ -595,7 +634,14 @@ export class WorldRenderer {
         this.updateDynamicLightmap();
         this.updateVisibility(cameraPosition);
         this.updateMaterials(time, cameraPosition, skyView);
-        if (skyView) this.updateSurfaceMipLevels(this.batches, cameraPosition, skyView);
+        if (skyView) {
+            this.updateSurfaceMipLevels(
+                this.batches,
+                cameraPosition,
+                skyView,
+                !this.staticMipViewChanged(cameraPosition, skyView)
+            );
+        }
     }
 
     updateBrushModelInstances(
@@ -620,6 +666,15 @@ export class WorldRenderer {
         skyView?: QuakeSkyView,
         lightStyles: ReadonlyMap<number, string> | undefined = this.quakeWorld?.lightStyles
     ): void {
+        this.cameraPositionUniform.set(cameraPosition);
+        if (skyView) {
+            this.skyForwardUniform.set(skyView.forward);
+            this.skyRenderSizeUniform.set(skyView.renderSize);
+            this.skyRightUniform.set(skyView.right);
+            this.skyUpUniform.set(skyView.up);
+            this.skyVideoSizeUniform.set(skyView.videoSize);
+            this.skyViewRectUniform.set(skyView.viewRect);
+        }
         for (const batch of this.batches) {
             if (batch.modelIndex !== 0 && this.quakeWorld) {
                 const reference = this.quakeWorld.inlineModelReferences.get(batch.modelIndex);
@@ -659,30 +714,26 @@ export class WorldRenderer {
             if (!indexTexture) {
                 continue;
             }
-            batch.material.setParameter('uIndexMap', indexTexture);
-            batch.material.setParameter('uTextureSize', new Float32Array([texture.width, texture.height]));
-            batch.material.setParameter('uLightStyles', new Float32Array(
-                batch.styles.map(style => quakeLightStyleValue(
-                    style, time, lightStyles
-                ))
-            ));
-            batch.material.setParameter('uCameraPosition', cameraPosition);
-            if (skyView && batch.mode === SURFACE_MODE.SKY) {
-                batch.material.setParameter('uSkyForward', skyView.forward);
-                batch.material.setParameter('uSkyRight', skyView.right);
-                batch.material.setParameter('uSkyUp', skyView.up);
-                batch.material.setParameter('uSkyRenderSize', skyView.renderSize);
-                batch.material.setParameter('uSkyVideoSize', skyView.videoSize);
-                batch.material.setParameter('uSkyViewRect', skyView.viewRect);
+            if (textureIndex !== batch.activeTextureIndex) {
+                batch.activeTextureIndex = textureIndex;
+                batch.textureSize[0] = texture.width;
+                batch.textureSize[1] = texture.height;
+                batch.material.setParameter('uIndexMap', indexTexture);
             }
-            batch.material.setParameter('uTime', time);
+            for (let styleIndex = 0; styleIndex < batch.styles.length; styleIndex++) {
+                batch.lightStyleValues[styleIndex] = quakeLightStyleValue(
+                    batch.styles[styleIndex], time, lightStyles
+                );
+            }
+            if (batch.mode !== SURFACE_MODE.NORMAL) batch.material.setParameter('uTime', time);
         }
     }
 
     private updateSurfaceMipLevels(
         batches: readonly WorldMipBatch[],
         cameraPosition: Float32Array<ArrayBuffer>,
-        view: QuakeSkyView
+        view: QuakeSkyView,
+        skipStaticWorld = false
     ): void {
         const cameraOrigin: Vec3 = [
             cameraPosition[0], -cameraPosition[2], cameraPosition[1]
@@ -690,27 +741,33 @@ export class WorldRenderer {
         const cameraRight: Vec3 = [view.right[0], view.right[1], view.right[2]];
         const cameraUp: Vec3 = [view.up[0], view.up[1], view.up[2]];
         const cameraForward: Vec3 = [view.forward[0], view.forward[1], view.forward[2]];
+        const mipView = quakeSurfaceMipView(
+            cameraOrigin,
+            cameraRight,
+            cameraUp,
+            cameraForward,
+            view.viewRect[2],
+            view.viewRect[3],
+            view.fieldOfView
+        );
+        if (!mipView) return;
         for (const batch of batches) {
+            if (skipStaticWorld && batch.modelIndex === 0) continue;
             if (batch.mode !== SURFACE_MODE.NORMAL) continue;
             let changed = false;
             const transform = batch.entity.getWorldTransform().data;
             for (const face of batch.faces) {
+                if (!face.visible) continue;
                 const vertices = quakeFaceWorldVertices(
                     batch.positions,
                     face.firstVertex,
                     face.vertexCount,
                     transform
                 );
-                const mipLevel = quakeSurfaceMipLevelForView(
+                const mipLevel = quakeSurfaceMipLevelForPreparedView(
                     vertices,
-                    cameraOrigin,
-                    cameraRight,
-                    cameraUp,
-                    cameraForward,
-                    view.viewRect[2],
-                    view.viewRect[3],
-                    face.mipAdjustment,
-                    view.fieldOfView
+                    mipView,
+                    face.mipAdjustment
                 ) ?? 3;
                 if (batch.mipLevels[face.firstVertex] !== mipLevel) {
                     batch.mipLevels.fill(
@@ -732,6 +789,26 @@ export class WorldRenderer {
         }
     }
 
+    private staticMipViewChanged(
+        cameraPosition: Float32Array<ArrayBuffer>,
+        view: QuakeSkyView
+    ): boolean {
+        const changed = this.staticMipFieldOfView !== view.fieldOfView ||
+            !arraysEqual(this.staticMipCameraPosition, cameraPosition) ||
+            !arraysEqual(this.staticMipForward, view.forward) ||
+            !arraysEqual(this.staticMipRight, view.right) ||
+            !arraysEqual(this.staticMipUp, view.up) ||
+            !arraysEqual(this.staticMipViewRect, view.viewRect);
+        if (!changed) return false;
+        this.staticMipFieldOfView = view.fieldOfView;
+        this.staticMipCameraPosition.set(cameraPosition);
+        this.staticMipForward.set(view.forward);
+        this.staticMipRight.set(view.right);
+        this.staticMipUp.set(view.up);
+        this.staticMipViewRect.set(view.viewRect);
+        return true;
+    }
+
     private updateVisibility(cameraPosition: Float32Array<ArrayBuffer>): void {
         const quakeCameraPosition: Vec3 = [
             cameraPosition[0], -cameraPosition[2], cameraPosition[1]
@@ -742,11 +819,13 @@ export class WorldRenderer {
         const visibility = this.map.visibleLeafs(cameraLeaf);
         for (const batch of this.batches) {
             if (batch.modelIndex !== 0) continue;
-            const visibleIndices = batch.faces.flatMap(face => (
-                face.leafs.length === 0 || face.leafs.some(
+            const visibleIndices: number[] = [];
+            for (const face of batch.faces) {
+                face.visible = face.leafs.length === 0 || face.leafs.some(
                     leaf => quakePvsContainsLeaf(visibility, cameraLeaf, leaf)
-                ) ? face.indices : []
-            ));
+                );
+                if (face.visible) visibleIndices.push(...face.indices);
+            }
             batch.mesh.setIndices(visibleIndices);
             batch.mesh.update(PRIMITIVE_TRIANGLES, false);
         }
