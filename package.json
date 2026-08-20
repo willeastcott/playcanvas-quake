@@ -1,0 +1,39 @@
+{
+  "name": "quake-playcanvas",
+  "version": "0.1.0",
+  "private": true,
+  "license": "GPL-2.0-only",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run lint && npm run typecheck && npm run test && npm run build",
+    "compare:captures": "node --experimental-strip-types scripts/compare-captures.ts",
+    "compose:loading-reference": "node --experimental-strip-types scripts/compose-loading-reference.ts",
+    "prepare:shareware": "node scripts/prepare-shareware.mjs",
+    "prepare:explobox-reference-save": "node --experimental-strip-types scripts/prepare-explobox-reference-save.ts",
+    "prepare:entity-reference-save": "node --experimental-strip-types scripts/prepare-entity-reference-save.ts",
+    "prepare:player-reference-save": "node --experimental-strip-types scripts/prepare-player-reference-save.ts",
+    "render:pcx": "node --experimental-strip-types scripts/render-quake-pcx.ts"
+  },
+  "dependencies": {
+    "libarchive.js": "^2.0.2",
+    "playcanvas": "2.21.4"
+  },
+  "devDependencies": {
+    "@playcanvas/eslint-config": "2.1.0",
+    "@playwright/test": "1.62.1",
+    "@types/node": "26.2.0",
+    "adm-zip": "^0.6.0",
+    "eslint": "9.39.5",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.67.0",
+    "vite": "8.2.1",
+    "vitest": "4.1.10"
+  }
+}

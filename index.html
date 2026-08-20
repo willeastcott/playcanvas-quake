@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Quake — PlayCanvas Port</title>
+    </head>
+    <body>
+        <main id="app">
+            <div id="stage">
+                <canvas id="game-canvas" aria-label="Quake game view" tabindex="0"></canvas>
+                <canvas id="screen-canvas" aria-hidden="true"></canvas>
+                <section id="fatal-error" role="alert" hidden>
+                    <p id="fatal-error-message"></p>
+                    <p class="data-help" hidden>
+                        No verified PAK was found. Run <code>npm run prepare:shareware</code>,
+                        or place a legally owned PAK at <code>.quake-data/id1/pak0.pak</code>.
+                    </p>
+                </section>
+                <aside id="debug" hidden></aside>
+            </div>
+        </main>
+        <script type="module" src="/src/main.ts"></script>
+    </body>
+</html>

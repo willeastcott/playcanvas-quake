@@ -1,0 +1,95 @@
+:root {
+    color: #d8d1bd;
+    background: #050403;
+    font-family: Georgia, 'Times New Roman', serif;
+    font-synthesis: none;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+}
+
+#app {
+    display: grid;
+    place-items: center;
+    background: #000;
+}
+
+#stage {
+    position: relative;
+    width: min(100vw, 160vh);
+    height: min(100vh, 62.5vw);
+    overflow: hidden;
+    background: #000;
+}
+
+#game-canvas,
+#screen-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+
+#game-canvas {
+    image-rendering: pixelated;
+}
+
+#screen-canvas {
+    z-index: 2;
+    pointer-events: none;
+    image-rendering: pixelated;
+}
+
+#fatal-error {
+    position: absolute;
+    z-index: 3;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    gap: 0.8rem;
+    padding: 2rem;
+    text-align: center;
+    color: #d8d1bd;
+    background: #000;
+}
+
+#fatal-error[hidden] {
+    display: none;
+}
+
+#fatal-error p {
+    max-width: 38rem;
+    margin: 0 auto;
+}
+
+.data-help {
+    padding: 1rem;
+    border: 1px solid #6a5542;
+    background: #120e0b;
+    line-height: 1.5;
+}
+
+code {
+    color: #f1d7a4;
+}
+
+#debug {
+    position: absolute;
+    z-index: 4;
+    top: 0.5rem;
+    right: 0.5rem;
+    padding: 0.35rem 0.5rem;
+    color: #eee;
+    background: rgb(0 0 0 / 70%);
+    font: 12px/1.4 monospace;
+}

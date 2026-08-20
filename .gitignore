@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.vite/
+coverage/
+.tmp/
+
+# Legally obtained Quake data and reference-only source. Never redistribute.
+.quake-data/
+.reference/
+
+# Local screenshots and visual-comparison output.
+artifacts/
+test-results/
+playwright-report/
