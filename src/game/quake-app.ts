@@ -2890,6 +2890,17 @@ export const startQuake = async ({
         controller.stopSpeed = quakeWorld.cvarValue('sv_stopspeed');
     };
 
+    const renderCameraPosition = new Float32Array(3);
+    const renderSkyView = {
+        fieldOfView,
+        forward: new Float32Array(3),
+        renderSize: new Float32Array(2),
+        right: new Float32Array(3),
+        up: new Float32Array(3),
+        videoSize: new Float32Array([320, 200]),
+        viewRect: new Float32Array(4)
+    };
+
     app.on('update', (deltaTime) => {
         commandBuffer.advanceFrame(executeSingleCommand);
         if (changingLevel) return;
@@ -3018,38 +3029,30 @@ export const startQuake = async ({
             controller.collision.pointContents(controller.viewLightingOrigin())
         );
         underwaterWarp.time = renderTime;
-        const cameraPositionArray = new Float32Array([
-            cameraPosition.x,
-            cameraPosition.y,
-            cameraPosition.z
-        ]);
+        renderCameraPosition[0] = cameraPosition.x;
+        renderCameraPosition[1] = cameraPosition.y;
+        renderCameraPosition[2] = cameraPosition.z;
         const cameraForward = cameraEntity.forward;
         const cameraRight = cameraEntity.right;
         const cameraUp = cameraEntity.up;
-        const skyView = {
-            fieldOfView,
-            forward: new Float32Array([
-                cameraForward.x, -cameraForward.z, cameraForward.y
-            ]),
-            renderSize: new Float32Array([
-                app.graphicsDevice.width, app.graphicsDevice.height
-            ]),
-            right: new Float32Array([
-                cameraRight.x, -cameraRight.z, cameraRight.y
-            ]),
-            up: new Float32Array([
-                cameraUp.x, -cameraUp.z, cameraUp.y
-            ]),
-            videoSize: new Float32Array([320, 200]),
-            viewRect: new Float32Array([
-                viewLayout.viewRect.x,
-                viewLayout.viewRect.y,
-                viewLayout.viewRect.width,
-                viewLayout.viewRect.height
-            ])
-        };
-        world.update(renderTime, cameraPositionArray, skyView);
-        worldBrushes.update(renderTime, cameraPositionArray, skyView);
+        renderSkyView.fieldOfView = fieldOfView;
+        renderSkyView.forward[0] = cameraForward.x;
+        renderSkyView.forward[1] = -cameraForward.z;
+        renderSkyView.forward[2] = cameraForward.y;
+        renderSkyView.renderSize[0] = app.graphicsDevice.width;
+        renderSkyView.renderSize[1] = app.graphicsDevice.height;
+        renderSkyView.right[0] = cameraRight.x;
+        renderSkyView.right[1] = -cameraRight.z;
+        renderSkyView.right[2] = cameraRight.y;
+        renderSkyView.up[0] = cameraUp.x;
+        renderSkyView.up[1] = -cameraUp.z;
+        renderSkyView.up[2] = cameraUp.y;
+        renderSkyView.viewRect[0] = viewLayout.viewRect.x;
+        renderSkyView.viewRect[1] = viewLayout.viewRect.y;
+        renderSkyView.viewRect[2] = viewLayout.viewRect.width;
+        renderSkyView.viewRect[3] = viewLayout.viewRect.height;
+        world.update(renderTime, renderCameraPosition, renderSkyView);
+        worldBrushes.update(renderTime, renderCameraPosition, renderSkyView);
     });
     const resize = (): void => {
         resizeGameCanvas();

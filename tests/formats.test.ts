@@ -133,6 +133,7 @@ import {
     QUAKE_WINQUAKE_QUIT_CREDITS,
     quakeCrosshairPosition,
     quakeFinaleVisibleCharacters,
+    quakeHudStateDrawKey,
     quakeInventoryAmmoDigitX,
     quakeLoadingHudState,
     quakeMenuFadeOpaque,
@@ -183,7 +184,9 @@ import {
     quakeSurfaceLightGrade,
     quakeSurfaceMipLevel,
     quakeSurfaceMipLevelForScale,
+    quakeSurfaceMipLevelForPreparedView,
     quakeSurfaceMipLevelForView,
+    quakeSurfaceMipView,
     quakeTextureMipAdjustment,
     sampleQuakeBspLight
 } from '../src/render/quake-lighting';
@@ -1734,6 +1737,30 @@ describe('Quake status-bar animation', () => {
         expect(quakeWeaponIconName('shotgun', 1, 1, 2, 3)).toBe('inv2_shotgun');
         expect(quakeWeaponIconName('shotgun', 1, 2, 0, 0)).toBe('inv_shotgun');
     });
+
+    it('invalidates the HUD only when a visible animation frame changes', () => {
+        const state = {
+            activeWeapon: 1,
+            itemGetTimes: [2],
+            time: 2.01
+        };
+        expect(quakeHudStateDrawKey({ ...state, time: 2.09 })).toBe(
+            quakeHudStateDrawKey(state)
+        );
+        expect(quakeHudStateDrawKey({ ...state, time: 2.11 })).not.toBe(
+            quakeHudStateDrawKey(state)
+        );
+        expect(quakeHudStateDrawKey({
+            menu: { cursor: 0, screen: 'main', time: 1.01 }
+        })).toBe(quakeHudStateDrawKey({
+            menu: { cursor: 0, screen: 'main', time: 1.09 }
+        }));
+        expect(quakeHudStateDrawKey({
+            menu: { cursor: 0, screen: 'main', time: 1.11 }
+        })).not.toBe(quakeHudStateDrawKey({
+            menu: { cursor: 0, screen: 'main', time: 1.01 }
+        }));
+    });
 });
 
 describe('Quake loading compositor', () => {
@@ -1995,6 +2022,17 @@ describe('Quake indexed lighting', () => {
             [0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1],
             320, 152, 1
         )).toBeUndefined();
+        const preparedView = quakeSurfaceMipView(
+            [0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1], 320, 152
+        );
+        expect(preparedView).toBeDefined();
+        expect(quakeSurfaceMipLevelForPreparedView(
+            surfaceAtDepth(400), preparedView!, 1
+        )).toBe(quakeSurfaceMipLevelForView(
+            surfaceAtDepth(400),
+            [0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1],
+            320, 152, 1
+        ));
         const instanceTransform = new Float32Array([
             1, 0, 0, 0,
             0, 1, 0, 0,
